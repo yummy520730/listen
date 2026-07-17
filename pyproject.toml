@@ -1,0 +1,35 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lingyin-server"
+version = "0.1.0"
+description = "A personal voice-perception layer exposed as a remote MCP server for Claude."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "httpx[socks]>=0.28.1,<1",
+  "librosa==0.11.0",
+  "mcp==1.28.1",
+  "numpy>=2.0,<3",
+  "openai==2.46.0",
+  "python-multipart>=0.0.20,<1",
+  "soundfile>=0.13.1,<1",
+  "starlette>=0.47,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.1,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lingyin_server"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

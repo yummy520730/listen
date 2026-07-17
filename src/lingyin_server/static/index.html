@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>聆音 LingYin</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0d0d11; --panel:#17171e; --line:#2a2a36; --text:#f3f0ea; --muted:#aaa7b4; --accent:#c8a8ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"PingFang SC",sans-serif; background:radial-gradient(circle at 20% 0,#271b35 0,transparent 38%),var(--bg); color:var(--text); }
+    main { width:min(760px,calc(100% - 32px)); margin:0 auto; padding:56px 0 80px; }
+    h1 { margin:0 0 8px; font-size:clamp(32px,8vw,56px); letter-spacing:-.04em; }
+    .lead { color:var(--muted); margin:0 0 32px; line-height:1.7; }
+    .card { background:color-mix(in srgb,var(--panel) 92%,transparent); border:1px solid var(--line); border-radius:22px; padding:22px; margin:16px 0; box-shadow:0 18px 60px #0005; }
+    label { display:block; font-size:13px; color:var(--muted); margin:14px 0 8px; }
+    input,textarea,button { width:100%; border-radius:13px; border:1px solid var(--line); background:#101016; color:var(--text); padding:13px 14px; font:inherit; }
+    textarea { min-height:84px; resize:vertical; }
+    button { margin-top:16px; background:var(--accent); color:#1c1028; border:0; font-weight:750; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    pre { white-space:pre-wrap; word-break:break-word; background:#101016; border:1px solid var(--line); border-radius:13px; padding:16px; line-height:1.65; min-height:54px; }
+    .small { font-size:12px; color:var(--muted); line-height:1.6; }
+    .pill { display:inline-block; border:1px solid var(--line); border-radius:999px; padding:6px 10px; color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+<main>
+  <span class="pill">personal voice perception</span>
+  <h1>聆音 LingYin</h1>
+  <p class="lead">描述一落，物就没了。所以要给形状，不给标签。上传的音频只会交给你配置的 ASR；声学轨迹与转写文本再交给描述模型。</p>
+
+  <section class="card">
+    <h2>听一段语音</h2>
+    <label for="token">访问密钥</label>
+    <input id="token" type="password" autocomplete="current-password" placeholder="LINGYIN_ACCESS_TOKEN">
+    <label for="audio">音频（最长 60 秒）</label>
+    <input id="audio" type="file" accept="audio/*">
+    <label for="context">可选背景</label>
+    <textarea id="context" placeholder="比如：这是一段刚睡醒时录下的话。背景只作辅助，不会盖过声音本身。"></textarea>
+    <button id="hear">让聆音听</button>
+    <button id="uploadOnly" style="background:#292334;color:#e8dcff">只上传，交给 Claude 听</button>
+    <pre id="result">等待一段声音。</pre>
+  </section>
+
+  <section class="card">
+    <h2>建立个人基线</h2>
+    <p class="small">选择 3–8 条自然、平常状态下的语音。基线只保存统计量，不长期保存这些录音。</p>
+    <input id="baselineFiles" type="file" accept="audio/*" multiple>
+    <button id="calibrate">校准平时的声音</button>
+    <pre id="baselineResult">尚未检查。</pre>
+  </section>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const auth = () => ({"Authorization": `Bearer ${$("token").value.trim()}`});
+  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  $("hear").onclick = async () => {
+    const file = $("audio").files[0];
+    if (!file) return $("result").textContent = "先选一条音频。";
+    $("hear").disabled = true;
+    $("result").textContent = "正在上传……";
+    try {
+      const body = new FormData(); body.append("audio", file); body.append("context", $("context").value);
+      let response = await fetch("/api/analyze", {method:"POST", headers:auth(), body});
+      let data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText);
+      $("result").textContent = `已经收到，编号 ${data.job_id}\n正在听……`;
+      for (;;) {
+        await sleep(1500);
+        response = await fetch(`/api/jobs/${data.job_id}`, {headers:auth()});
+        const job = await response.json(); if (!response.ok) throw new Error(job.error || response.statusText);
+        if (job.status === "done") { $("result").textContent = job.result.description; break; }
+        if (job.status === "error") throw new Error(job.error);
+        $("result").textContent = `编号 ${data.job_id}\n状态：${job.status === "queued" ? "排队中" : "正在听"}……`;
+      }
+    } catch (error) { $("result").textContent = `没有听成：${error.message}`; }
+    finally { $("hear").disabled = false; }
+  };
+
+  $("uploadOnly").onclick = async () => {
+    const file = $("audio").files[0];
+    if (!file) return $("result").textContent = "先选一条音频。";
+    $("uploadOnly").disabled = true; $("result").textContent = "正在上传……";
+    try {
+      const body = new FormData(); body.append("audio", file);
+      const response = await fetch("/api/upload", {method:"POST", headers:auth(), body});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText);
+      $("result").textContent = `上传编号：${data.upload_id}\n\n把这句话发给 Claude：\n请调用聆音听一下 upload_id ${data.upload_id}`;
+    } catch (error) { $("result").textContent = `上传失败：${error.message}`; }
+    finally { $("uploadOnly").disabled = false; }
+  };
+
+  $("calibrate").onclick = async () => {
+    const files = [...$("baselineFiles").files];
+    if (files.length < 3 || files.length > 8) return $("baselineResult").textContent = "请选择 3–8 条语音。";
+    $("calibrate").disabled = true; $("baselineResult").textContent = "正在记住你平时的声音……";
+    try {
+      const body = new FormData(); files.forEach(file => body.append("audio", file));
+      const response = await fetch("/api/calibrate", {method:"POST", headers:auth(), body});
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || response.statusText);
+      $("baselineResult").textContent = `校准完成：${data.sample_count} 条基线录音。`;
+    } catch (error) { $("baselineResult").textContent = `校准失败：${error.message}`; }
+    finally { $("calibrate").disabled = false; }
+  };
+</script>
+</body>
+</html>
