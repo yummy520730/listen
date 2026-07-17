@@ -41,6 +41,11 @@ providers = ProviderClients(
     timeout=settings.provider_timeout_seconds,
 )
 service = AnalysisService(settings, store, baseline_store, providers)
+OAUTH_PAGE_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; "
+    "form-action 'self' https://claude.ai https://claude.com; "
+    "frame-ancestors 'none'; base-uri 'none'"
+)
 oauth_provider = None
 oauth_settings = None
 if settings.mcp_auth_mode == "oauth":
@@ -96,7 +101,7 @@ if oauth_provider is not None:
                 status_code=200 if pending else 410,
                 headers={
                     "Cache-Control": "no-store",
-                    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                    "Content-Security-Policy": OAUTH_PAGE_CSP,
                     "X-Frame-Options": "DENY",
                     "Referrer-Policy": "no-referrer",
                 },
@@ -118,7 +123,7 @@ if oauth_provider is not None:
                 status_code=401 if pending else 410,
                 headers={
                     "Cache-Control": "no-store",
-                    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                    "Content-Security-Policy": OAUTH_PAGE_CSP,
                     "X-Frame-Options": "DENY",
                     "Referrer-Policy": "no-referrer",
                 },

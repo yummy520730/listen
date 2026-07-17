@@ -142,6 +142,8 @@ OAuth Client ID 和 OAuth Client Secret 留空。添加后点击 **Connect**，C
 
 如果点“允许连接”后浏览器没有成功返回 Claude，可以再次提交；服务会在短时间内复用同一个回调。重新打开登录页时也会出现“继续回到 Claude”按钮，不会因第一次跳转丢失而立即判定过期。
 
+登录页的 Content Security Policy 只允许表单留在聆音，以及回跳到 Claude 官方的 `claude.ai` / `claude.com`；其他跨站表单与页面嵌入仍被阻止。
+
 如果 Claude 的 Connector 测试版无法完成 OAuth，可临时把 Zeabur 变量改成：
 
 ```env

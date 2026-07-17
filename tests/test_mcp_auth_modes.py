@@ -9,7 +9,7 @@ PROBE = textwrap.dedent(
     import asyncio
     import httpx
 
-    from lingyin_server.app import app, starlette_app
+    from lingyin_server.app import OAUTH_PAGE_CSP, app, starlette_app
 
     async def main():
         request = {
@@ -31,13 +31,14 @@ PROBE = textwrap.dedent(
                     headers={"Accept": "application/json, text/event-stream"},
                 )
                 print(response.status_code)
+                print(OAUTH_PAGE_CSP)
 
     asyncio.run(main())
     """
 )
 
 
-def _probe(tmp_path, mode: str) -> int:
+def _probe(tmp_path, mode: str) -> tuple[int, str]:
     env = os.environ.copy()
     env.update(
         {
@@ -55,12 +56,16 @@ def _probe(tmp_path, mode: str) -> int:
         env=env,
         timeout=30,
     )
-    return int(result.stdout.strip().splitlines()[-1])
+    lines = result.stdout.strip().splitlines()
+    return int(lines[-2]), lines[-1]
 
 
 def test_none_mode_accepts_mcp_without_bearer_token(tmp_path):
-    assert _probe(tmp_path, "none") == 200
+    status, _ = _probe(tmp_path, "none")
+    assert status == 200
 
 
 def test_oauth_mode_requires_bearer_token(tmp_path):
-    assert _probe(tmp_path, "oauth") == 401
+    status, csp = _probe(tmp_path, "oauth")
+    assert status == 401
+    assert "form-action 'self' https://claude.ai https://claude.com" in csp
