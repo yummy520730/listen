@@ -33,9 +33,11 @@ class Settings:
     download_timeout_seconds: float
     provider_timeout_seconds: float
     max_concurrency: int
+    asr_provider: str
     asr_base_url: str
     asr_api_key: str
     asr_model: str
+    asr_language_code: str
     llm_base_url: str
     llm_api_key: str
     llm_model: str
@@ -44,6 +46,13 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         data_dir = Path(os.getenv("LINGYIN_DATA_DIR", "/data")).expanduser()
+        asr_provider = os.getenv("ASR_PROVIDER", "openai").strip().lower()
+        if asr_provider not in {"openai", "elevenlabs"}:
+            raise ValueError("ASR_PROVIDER must be 'openai' or 'elevenlabs'")
+        default_asr_base = (
+            "https://api.elevenlabs.io/v1" if asr_provider == "elevenlabs" else "https://api.openai.com/v1"
+        )
+        default_asr_model = "scribe_v2" if asr_provider == "elevenlabs" else "gpt-4o-mini-transcribe"
         return cls(
             access_token=os.getenv("LINGYIN_ACCESS_TOKEN", "").strip(),
             public_base_url=os.getenv("LINGYIN_PUBLIC_BASE_URL", "").strip().rstrip("/"),
@@ -55,9 +64,11 @@ class Settings:
             download_timeout_seconds=_float("LINGYIN_DOWNLOAD_TIMEOUT_SECONDS", 30),
             provider_timeout_seconds=_float("LINGYIN_PROVIDER_TIMEOUT_SECONDS", 120),
             max_concurrency=_int("LINGYIN_MAX_CONCURRENCY", 1),
-            asr_base_url=os.getenv("ASR_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
+            asr_provider=asr_provider,
+            asr_base_url=os.getenv("ASR_BASE_URL", default_asr_base).rstrip("/"),
             asr_api_key=os.getenv("ASR_API_KEY", "").strip(),
-            asr_model=os.getenv("ASR_MODEL", "gpt-4o-mini-transcribe").strip(),
+            asr_model=os.getenv("ASR_MODEL", default_asr_model).strip(),
+            asr_language_code=os.getenv("ASR_LANGUAGE_CODE", "").strip(),
             llm_base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1").rstrip("/"),
             llm_api_key=os.getenv("LLM_API_KEY", "").strip(),
             llm_model=os.getenv("LLM_MODEL", "gpt-4.1-mini").strip(),

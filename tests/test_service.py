@@ -30,9 +30,11 @@ async def test_service_processes_one_upload(tmp_path: Path, monkeypatch):
         download_timeout_seconds=5,
         provider_timeout_seconds=5,
         max_concurrency=1,
+        asr_provider="openai",
         asr_base_url="https://example.com/v1",
         asr_api_key="key",
         asr_model="asr",
+        asr_language_code="",
         llm_base_url="https://example.com/v1",
         llm_api_key="",
         llm_model="",
@@ -62,4 +64,3 @@ async def test_service_processes_one_upload(tmp_path: Path, monkeypatch):
         assert not audio.exists()
     finally:
         await service.close()
-

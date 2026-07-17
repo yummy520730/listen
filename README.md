@@ -8,7 +8,7 @@
 
 ## 它能做什么
 
-- 使用任意 OpenAI 兼容 ASR 接口转写语音。
+- 使用 ElevenLabs Scribe 或任意 OpenAI 兼容 ASR 接口转写语音。
 - 每 100ms 提取音高、能量、频谱亮度与发声边缘。
 - 将停顿与明显变化映射到时间区间。
 - 用 3–8 条日常录音建立个人中位数与 MAD 基线。
@@ -61,14 +61,28 @@
 
 ### 3. 添加环境变量
 
-最少需要：
+使用 ElevenLabs 时，最少需要：
 
 ```env
 LINGYIN_ACCESS_TOKEN=一段足够长的随机密钥
+ASR_PROVIDER=elevenlabs
+ASR_BASE_URL=https://api.elevenlabs.io/v1
+ASR_API_KEY=你的ElevenLabs密钥
+ASR_MODEL=scribe_v2
+ASR_LANGUAGE_CODE=zh
+LINGYIN_DATA_DIR=/data
+```
+
+`ASR_API_KEY` 在 ElevenLabs 控制台的 API Keys 页面创建。它等同于密码，只放在 Zeabur 的环境变量中，不要写进 GitHub，也不要发给 Claude。
+
+如果改用 OpenAI 兼容转写接口，则设置：
+
+```env
+ASR_PROVIDER=openai
 ASR_BASE_URL=https://你的兼容接口/v1
 ASR_API_KEY=你的ASR密钥
 ASR_MODEL=你的转写模型名
-LINGYIN_DATA_DIR=/data
+ASR_LANGUAGE_CODE=
 ```
 
 生成随机密钥：
@@ -234,4 +248,3 @@ pytest
 ## License
 
 MIT
-

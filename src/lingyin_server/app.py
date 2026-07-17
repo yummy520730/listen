@@ -26,9 +26,11 @@ settings.prepare_directories()
 store = Store(settings.data_dir / "lingyin.sqlite3", settings.upload_ttl_hours, settings.job_ttl_days)
 baseline_store = BaselineStore(settings.data_dir / "baseline" / "baseline.json")
 providers = ProviderClients(
+    asr_provider=settings.asr_provider,
     asr_base_url=settings.asr_base_url,
     asr_api_key=settings.asr_api_key,
     asr_model=settings.asr_model,
+    asr_language_code=settings.asr_language_code,
     llm_base_url=settings.llm_base_url,
     llm_api_key=settings.llm_api_key,
     llm_model=settings.llm_model,
@@ -77,6 +79,7 @@ async def lingyin_info() -> dict:
     baseline = baseline_store.read()
     return {
         "ready": settings.providers_ready,
+        "asr_provider": settings.asr_provider,
         "server_prose_model": settings.llm_ready,
         "upload_page": settings.public_base_url or "Open this server's root URL in a browser.",
         "max_audio_seconds": settings.max_audio_seconds,
@@ -100,6 +103,7 @@ async def health(_: Request) -> JSONResponse:
         {
             "status": "ok",
             "providers_configured": settings.providers_ready,
+            "asr_provider": settings.asr_provider,
             "server_prose_model_configured": settings.llm_ready,
             "access_token_configured": bool(settings.access_token),
             "baseline_samples": baseline.get("sample_count", 0) if baseline else 0,

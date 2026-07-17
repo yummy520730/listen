@@ -4,6 +4,7 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
+import httpx
 from openai import APIStatusError, AsyncOpenAI
 
 from .models import AcousticAnalysis, HearingResult, Transcript, TranscriptSegment
@@ -17,19 +18,35 @@ class ProviderClients:
     def __init__(
         self,
         *,
+        asr_provider: str,
         asr_base_url: str,
         asr_api_key: str,
         asr_model: str,
+        asr_language_code: str,
         llm_base_url: str,
         llm_api_key: str,
         llm_model: str,
         timeout: float,
     ):
+        self.asr_provider = asr_provider
+        self.asr_base_url = asr_base_url.rstrip("/")
+        self.asr_api_key = asr_api_key
         self.asr_model = asr_model
+        self.asr_language_code = asr_language_code
         self.llm_model = llm_model
         self.asr = (
             AsyncOpenAI(base_url=asr_base_url, api_key=asr_api_key, timeout=timeout, max_retries=2)
-            if asr_api_key
+            if asr_api_key and asr_provider == "openai"
+            else None
+        )
+        self.elevenlabs = (
+            httpx.AsyncClient(
+                base_url=self.asr_base_url,
+                headers={"xi-api-key": asr_api_key},
+                timeout=timeout,
+                follow_redirects=True,
+            )
+            if asr_api_key and asr_provider == "elevenlabs"
             else None
         )
         self.llm = (
@@ -41,12 +58,21 @@ class ProviderClients:
     async def close(self) -> None:
         if self.asr is not None:
             await self.asr.close()
+        if self.elevenlabs is not None:
+            await self.elevenlabs.aclose()
         if self.llm is not None:
             await self.llm.close()
 
     async def transcribe(self, path: Path) -> Transcript:
-        if self.asr is None or not self.asr_model:
+        if not self.asr_api_key or not self.asr_model:
             raise ProviderConfigurationError("ASR_API_KEY / ASR_MODEL is not configured")
+        if self.asr_provider == "elevenlabs":
+            return await self._transcribe_elevenlabs(path)
+        return await self._transcribe_openai(path)
+
+    async def _transcribe_openai(self, path: Path) -> Transcript:
+        if self.asr is None:
+            raise ProviderConfigurationError("OpenAI-compatible ASR client is not configured")
 
         with path.open("rb") as audio:
             try:
@@ -89,6 +115,26 @@ class ProviderClients:
                 TranscriptSegment(start=round(float(start), 2), end=round(float(end), 2), text=str(segment_text).strip())
             )
         return Transcript(text=text, segments=segments)
+
+    async def _transcribe_elevenlabs(self, path: Path) -> Transcript:
+        if self.elevenlabs is None:
+            raise ProviderConfigurationError("ElevenLabs ASR client is not configured")
+        form = {
+            "model_id": self.asr_model,
+            "timestamps_granularity": "word",
+            "tag_audio_events": "true",
+            "diarize": "false",
+        }
+        if self.asr_language_code:
+            form["language_code"] = self.asr_language_code
+        with path.open("rb") as audio:
+            response = await self.elevenlabs.post(
+                "/speech-to-text",
+                data=form,
+                files={"file": (path.name, audio, "audio/wav")},
+            )
+        response.raise_for_status()
+        return transcript_from_elevenlabs(response.json())
 
     async def describe(
         self,
@@ -170,3 +216,56 @@ def build_result(
         baseline_comparison=acoustics.baseline_comparison,
         llm_fallback_used=fallback_used,
     )
+
+
+def transcript_from_elevenlabs(payload: dict) -> Transcript:
+    """Convert ElevenLabs word timestamps into compact phrase-level segments."""
+    text = str(payload.get("text", "") or "").strip()
+    words = payload.get("words") or []
+    segments: list[TranscriptSegment] = []
+    tokens: list[str] = []
+    segment_start: float | None = None
+    segment_end: float | None = None
+    previous_end: float | None = None
+
+    def flush() -> None:
+        nonlocal tokens, segment_start, segment_end
+        rendered = "".join(tokens).strip()
+        if rendered and segment_start is not None and segment_end is not None:
+            segments.append(
+                TranscriptSegment(
+                    start=round(segment_start, 2),
+                    end=round(segment_end, 2),
+                    text=rendered,
+                )
+            )
+        tokens = []
+        segment_start = None
+        segment_end = None
+
+    for item in words:
+        token = str(item.get("text", "") or "")
+        start = item.get("start")
+        end = item.get("end")
+        item_type = str(item.get("type", "word"))
+
+        if item_type == "spacing":
+            tokens.append(token)
+            continue
+        if start is None or end is None:
+            continue
+        start_value, end_value = float(start), float(end)
+        if previous_end is not None and start_value - previous_end >= 0.9:
+            flush()
+        if segment_start is None:
+            segment_start = start_value
+        segment_end = end_value
+        tokens.append(token)
+        previous_end = end_value
+
+        rendered = token.rstrip()
+        if rendered.endswith(("。", "！", "？", ".", "!", "?")) or end_value - segment_start >= 8.0:
+            flush()
+
+    flush()
+    return Transcript(text=text, segments=segments)
