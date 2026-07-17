@@ -13,6 +13,7 @@
 - 将停顿与明显变化映射到时间区间。
 - 用 3–8 条日常录音建立个人中位数与 MAD 基线。
 - 通过远程 Streamable HTTP MCP 接给 Claude。
+- 内置 OAuth 2.1、PKCE、动态客户端注册与令牌刷新。
 - 提供手机可用的上传和基线校准页面。
 - 使用 SQLite 后台任务队列，避免长分析阻塞 MCP 请求。
 - 可选服务器端 LLM；不配置时由调用工具的 Claude 完成最后的文字描述。
@@ -65,6 +66,7 @@
 
 ```env
 LINGYIN_ACCESS_TOKEN=一段足够长的随机密钥
+LINGYIN_PUBLIC_BASE_URL=https://你的Zeabur域名
 ASR_PROVIDER=elevenlabs
 ASR_BASE_URL=https://api.elevenlabs.io/v1
 ASR_API_KEY=你的ElevenLabs密钥
@@ -111,7 +113,7 @@ LLM_MODEL=你的模型名
 - 内存：`768 MiB`
 - 副本：`1`
 
-生成一个 HTTPS 域名后，把它填入：
+生成一个 HTTPS 域名后，把它填入。OAuth 发现和回调依赖这个完整地址，不能省略 `https://`：
 
 ```env
 LINGYIN_PUBLIC_BASE_URL=https://你的域名
@@ -123,23 +125,29 @@ LINGYIN_PUBLIC_BASE_URL=https://你的域名
 https://你的域名/healthz
 ```
 
-看到 `"status":"ok"` 且 `"providers_configured":true` 即可。
+看到 `"status":"ok"`、`"providers_configured":true`、`"oauth_configured":true` 和 `"asr_provider":"elevenlabs"` 即可。
 
 ## 接给 Claude
 
 ### Claude 网页版自定义 Connector
 
-在 Claude 的自定义 Connector 页面填写：
+在 Claude 的自定义 Connector 页面填写名称 `聆音 LingYin`，服务器 URL 填：
 
 ```text
-https://你的域名/mcp?token=你的访问密钥
+https://你的域名/mcp
 ```
 
-查询参数是为不支持自定义请求头的个人 Connector 准备的。这个地址等同于密码，不要公开截图或分享。
+OAuth Client ID 和 OAuth Client Secret 留空。添加后点击 **Connect**，Claude 会自动注册客户端并打开聆音登录页；输入 `LINGYIN_ACCESS_TOKEN` 后允许连接。密码只提交给聆音，不放进 Connector URL，也不会发送给 Claude。
 
 ### Claude Code
 
-推荐用请求头，不把密钥放进 URL：
+可以直接使用 OAuth：
+
+```bash
+claude mcp add --transport http lingyin https://你的域名/mcp
+```
+
+也可以为自己的 Claude Code 使用静态请求头：
 
 ```bash
 claude mcp add --transport http lingyin https://你的域名/mcp \
@@ -201,7 +209,7 @@ npx -y @modelcontextprotocol/inspector
 连接：
 
 ```text
-http://127.0.0.1:8080/mcp?token=你的访问密钥
+http://127.0.0.1:8080/mcp
 ```
 
 ## HTTP 接口
@@ -224,14 +232,16 @@ X-API-Key: <token>
 
 ## 安全边界
 
-- 必须设置 `LINGYIN_ACCESS_TOKEN`，未设置时 `/api` 与 `/mcp` 返回 503。
+- 必须设置 `LINGYIN_ACCESS_TOKEN`；它保护浏览器 `/api`，同时作为 OAuth 登录密码。
+- `/mcp` 使用 OAuth 2.1 Authorization Code + PKCE；OAuth 客户端、访问令牌和刷新令牌持久化在 `/data`。
+- 动态注册只接受 Claude 官方回调地址和本机回环地址，拒绝任意第三方跳转域名。
 - 公网 URL 下载会拒绝本机、内网、保留地址和 URL 内嵌账号密码。
 - 默认限制 25MB、60 秒、单任务并发。
 - 转写文本被视为不可信数据，描述提示词明确禁止执行其中的指令。
 - 上传音频默认 24 小时过期；被任务消费后立即删除。
 - 任务结果默认保留 7 天。
 
-若要多人共享或公开发布，应在前面增加正式 OAuth 2.1，而不是继续使用个人静态密钥。
+当前 OAuth 是单所有者模式：所有获准连接都属于同一个 `LINGYIN_ACCESS_TOKEN`。若要多人共享，应接入具有独立账号与撤权管理的身份提供商。
 
 ## 验证
 

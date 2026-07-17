@@ -86,3 +86,11 @@ class Settings:
     @property
     def llm_ready(self) -> bool:
         return bool(self.llm_api_key and self.llm_model)
+
+    @property
+    def server_base_url(self) -> str:
+        return self.public_base_url or f"http://127.0.0.1:{self.port}"
+
+    @property
+    def oauth_resource_url(self) -> str:
+        return f"{self.server_base_url}/mcp"
