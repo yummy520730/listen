@@ -66,6 +66,7 @@
 
 ```env
 LINGYIN_ACCESS_TOKEN=一段足够长的随机密钥
+LINGYIN_MCP_AUTH_MODE=oauth
 LINGYIN_PUBLIC_BASE_URL=https://你的Zeabur域名
 ASR_PROVIDER=elevenlabs
 ASR_BASE_URL=https://api.elevenlabs.io/v1
@@ -138,6 +139,14 @@ https://你的域名/mcp
 ```
 
 OAuth Client ID 和 OAuth Client Secret 留空。添加后点击 **Connect**，Claude 会自动注册客户端并打开聆音登录页；输入 `LINGYIN_ACCESS_TOKEN` 后允许连接。密码只提交给聆音，不放进 Connector URL，也不会发送给 Claude。
+
+如果 Claude 的 Connector 测试版无法完成 OAuth，可临时把 Zeabur 变量改成：
+
+```env
+LINGYIN_MCP_AUTH_MODE=none
+```
+
+重新部署后，删除 Claude 中原来的 Connector，再用同一个 `/mcp` URL 新建；此时 Client ID 和 Secret 都留空，也不再出现登录页。确认连接后可以把变量改回 `oauth`。`none` 会使公网中的任何人都能调用 MCP 工具并消耗 ASR 额度，只建议短时间排障；浏览器 `/api` 仍由 `LINGYIN_ACCESS_TOKEN` 保护。
 
 ### Claude Code
 
@@ -232,8 +241,9 @@ X-API-Key: <token>
 
 ## 安全边界
 
-- 必须设置 `LINGYIN_ACCESS_TOKEN`；它保护浏览器 `/api`，同时作为 OAuth 登录密码。
-- `/mcp` 使用 OAuth 2.1 Authorization Code + PKCE；OAuth 客户端、访问令牌和刷新令牌持久化在 `/data`。
+- 必须设置 `LINGYIN_ACCESS_TOKEN`；它始终保护浏览器 `/api`，在默认 `oauth` 模式下也作为 OAuth 登录密码。
+- `/mcp` 默认使用 OAuth 2.1 Authorization Code + PKCE；OAuth 客户端、访问令牌和刷新令牌持久化在 `/data`。
+- `LINGYIN_MCP_AUTH_MODE=none` 仅用于临时兼容性排障，会公开 MCP 工具并允许第三方消耗 ASR 额度。
 - 动态注册只接受 Claude 官方回调地址和本机回环地址，拒绝任意第三方跳转域名。
 - 公网 URL 下载会拒绝本机、内网、保留地址和 URL 内嵌账号密码。
 - 默认限制 25MB、60 秒、单任务并发。

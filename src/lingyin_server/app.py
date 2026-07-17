@@ -41,19 +41,16 @@ providers = ProviderClients(
     timeout=settings.provider_timeout_seconds,
 )
 service = AnalysisService(settings, store, baseline_store, providers)
-oauth_provider = LingYinOAuthProvider(
-    settings.data_dir / "lingyin.sqlite3",
-    issuer_url=settings.server_base_url,
-    resource_url=settings.oauth_resource_url,
-    owner_password=settings.access_token,
-)
-
-mcp = FastMCP(
-    "LingYin",
-    stateless_http=True,
-    json_response=True,
-    auth_server_provider=oauth_provider,
-    auth=AuthSettings(
+oauth_provider = None
+oauth_settings = None
+if settings.mcp_auth_mode == "oauth":
+    oauth_provider = LingYinOAuthProvider(
+        settings.data_dir / "lingyin.sqlite3",
+        issuer_url=settings.server_base_url,
+        resource_url=settings.oauth_resource_url,
+        owner_password=settings.access_token,
+    )
+    oauth_settings = AuthSettings(
         issuer_url=settings.server_base_url,
         service_documentation_url=settings.server_base_url,
         client_registration_options=ClientRegistrationOptions(
@@ -64,7 +61,14 @@ mcp = FastMCP(
         revocation_options=RevocationOptions(enabled=True),
         required_scopes=["lingyin"],
         resource_server_url=settings.oauth_resource_url,
-    ),
+    )
+
+mcp = FastMCP(
+    "LingYin",
+    stateless_http=True,
+    json_response=True,
+    auth_server_provider=oauth_provider,
+    auth=oauth_settings,
     transport_security=TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=[urlparse(settings.server_base_url).netloc, "127.0.0.1:*", "localhost:*"],
@@ -80,43 +84,45 @@ mcp = FastMCP(
 mcp.settings.streamable_http_path = "/mcp"
 
 
-@mcp.custom_route("/oauth/login", methods=["GET", "POST"])
-async def oauth_login(request: Request):
-    if request.method == "GET":
-        request_id = request.query_params.get("request", "")
-        pending = oauth_provider.get_pending_login(request_id)
-        return HTMLResponse(
-            render_oauth_login(request_id, pending),
-            status_code=200 if pending else 410,
-            headers={
-                "Cache-Control": "no-store",
-                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-                "X-Frame-Options": "DENY",
-                "Referrer-Policy": "no-referrer",
-            },
-        )
+if oauth_provider is not None:
 
-    form = await request.form(max_fields=4)
-    request_id = str(form.get("request", ""))
-    password = str(form.get("password", ""))
-    try:
-        return RedirectResponse(
-            oauth_provider.complete_authorization(request_id, password),
-            status_code=303,
-            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
-        )
-    except OAuthLoginError as exc:
-        pending = oauth_provider.get_pending_login(request_id)
-        return HTMLResponse(
-            render_oauth_login(request_id, pending, str(exc)),
-            status_code=401 if pending else 410,
-            headers={
-                "Cache-Control": "no-store",
-                "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-                "X-Frame-Options": "DENY",
-                "Referrer-Policy": "no-referrer",
-            },
-        )
+    @mcp.custom_route("/oauth/login", methods=["GET", "POST"])
+    async def oauth_login(request: Request):
+        if request.method == "GET":
+            request_id = request.query_params.get("request", "")
+            pending = oauth_provider.get_pending_login(request_id)
+            return HTMLResponse(
+                render_oauth_login(request_id, pending),
+                status_code=200 if pending else 410,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                    "X-Frame-Options": "DENY",
+                    "Referrer-Policy": "no-referrer",
+                },
+            )
+
+        form = await request.form(max_fields=4)
+        request_id = str(form.get("request", ""))
+        password = str(form.get("password", ""))
+        try:
+            return RedirectResponse(
+                oauth_provider.complete_authorization(request_id, password),
+                status_code=303,
+                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+            )
+        except OAuthLoginError as exc:
+            pending = oauth_provider.get_pending_login(request_id)
+            return HTMLResponse(
+                render_oauth_login(request_id, pending, str(exc)),
+                status_code=401 if pending else 410,
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+                    "X-Frame-Options": "DENY",
+                    "Referrer-Policy": "no-referrer",
+                },
+            )
 
 
 @mcp.tool()
@@ -158,7 +164,7 @@ async def lingyin_info() -> dict:
         "ready": settings.providers_ready,
         "asr_provider": settings.asr_provider,
         "server_prose_model": settings.llm_ready,
-        "authentication": "oauth2-pkce",
+        "authentication": "oauth2-pkce" if settings.mcp_auth_mode == "oauth" else "none",
         "upload_page": settings.public_base_url or "Open this server's root URL in a browser.",
         "max_audio_seconds": settings.max_audio_seconds,
         "max_audio_mb": round(settings.max_audio_bytes / 1024 / 1024),
@@ -184,7 +190,10 @@ async def health(_: Request) -> JSONResponse:
             "asr_provider": settings.asr_provider,
             "server_prose_model_configured": settings.llm_ready,
             "access_token_configured": bool(settings.access_token),
-            "oauth_configured": bool(settings.access_token and settings.public_base_url),
+            "mcp_auth_mode": settings.mcp_auth_mode,
+            "oauth_configured": bool(
+                settings.mcp_auth_mode == "oauth" and settings.access_token and settings.public_base_url
+            ),
             "baseline_samples": baseline.get("sample_count", 0) if baseline else 0,
             "queued_jobs": service.queue.qsize(),
         },

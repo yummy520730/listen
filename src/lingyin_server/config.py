@@ -42,10 +42,14 @@ class Settings:
     llm_api_key: str
     llm_model: str
     port: int
+    mcp_auth_mode: str = "oauth"
 
     @classmethod
     def from_env(cls) -> "Settings":
         data_dir = Path(os.getenv("LINGYIN_DATA_DIR", "/data")).expanduser()
+        mcp_auth_mode = os.getenv("LINGYIN_MCP_AUTH_MODE", "oauth").strip().lower()
+        if mcp_auth_mode not in {"oauth", "none"}:
+            raise ValueError("LINGYIN_MCP_AUTH_MODE must be 'oauth' or 'none'")
         asr_provider = os.getenv("ASR_PROVIDER", "openai").strip().lower()
         if asr_provider not in {"openai", "elevenlabs"}:
             raise ValueError("ASR_PROVIDER must be 'openai' or 'elevenlabs'")
@@ -55,6 +59,7 @@ class Settings:
         default_asr_model = "scribe_v2" if asr_provider == "elevenlabs" else "gpt-4o-mini-transcribe"
         return cls(
             access_token=os.getenv("LINGYIN_ACCESS_TOKEN", "").strip(),
+            mcp_auth_mode=mcp_auth_mode,
             public_base_url=os.getenv("LINGYIN_PUBLIC_BASE_URL", "").strip().rstrip("/"),
             data_dir=data_dir,
             max_audio_bytes=_int("LINGYIN_MAX_AUDIO_MB", 25) * 1024 * 1024,
