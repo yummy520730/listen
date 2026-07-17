@@ -195,6 +195,12 @@ class LingYinOAuthProvider(
             if not row:
                 raise OAuthLoginError("授权请求已过期，请回到 Claude 重新点击 Connect。")
 
+            pending = json.loads(row["payload_json"])
+            # A mobile browser can lose the first 303 while returning to Claude.
+            # Keep the same short-lived callback so another tap can safely retry.
+            if completed_redirect := pending.get("completed_redirect"):
+                return str(completed_redirect)
+
             attempts = int(row["attempts"])
             if attempts >= MAX_LOGIN_ATTEMPTS:
                 db.execute("DELETE FROM oauth_pending WHERE request_id = ?", (request_id,))
@@ -206,7 +212,6 @@ class LingYinOAuthProvider(
                 )
                 raise OAuthLoginError("密码不对，请输入 LINGYIN_ACCESS_TOKEN。")
 
-            pending = json.loads(row["payload_json"])
             scopes = list(dict.fromkeys(["lingyin", *(pending.get("scopes") or [])]))
             raw_code = secrets.token_urlsafe(32)
             code = AuthorizationCode(
@@ -228,12 +233,18 @@ class LingYinOAuthProvider(
                     code.expires_at,
                 ),
             )
-            db.execute("DELETE FROM oauth_pending WHERE request_id = ?", (request_id,))
+            fields = {"code": raw_code}
+            if pending.get("state") is not None:
+                fields["state"] = pending["state"]
+            completed_redirect = construct_redirect_uri(pending["redirect_uri"], **fields)
+            pending["completed_redirect"] = completed_redirect
+            pending["completed_at"] = time.time()
+            db.execute(
+                "UPDATE oauth_pending SET payload_json = ? WHERE request_id = ?",
+                (json.dumps(pending, ensure_ascii=False), request_id),
+            )
 
-        fields = {"code": raw_code}
-        if pending.get("state") is not None:
-            fields["state"] = pending["state"]
-        return construct_redirect_uri(pending["redirect_uri"], **fields)
+        return completed_redirect
 
     async def load_authorization_code(
         self,
@@ -408,6 +419,14 @@ def render_oauth_login(request_id: str, pending: dict | None, error: str = "") -
         <h1>这次授权已经失效</h1>
         <p>请回到 Claude，重新点击 <strong>Connect</strong>。</p>
         """
+    elif completed_redirect := pending.get("completed_redirect"):
+        safe_redirect = html.escape(str(completed_redirect), quote=True)
+        content = f"""
+        <span class="pill">OAuth 2.1 · PKCE</span>
+        <h1>已经允许连接</h1>
+        <p>如果浏览器没有自动回到 Claude，请点击下面的按钮继续。授权码只有几分钟有效。</p>
+        <a class="continue" href="{safe_redirect}">继续回到 Claude</a>
+        """
     else:
         client_name = html.escape(str(pending.get("client_name") or "Claude"))
         safe_request = html.escape(request_id, quote=True)
@@ -429,5 +448,5 @@ def render_oauth_login(request_id: str, pending: dict | None, error: str = "") -
 <title>授权连接 · 聆音</title><style>
 :root{{color-scheme:dark;--bg:#0d0d11;--panel:#191821;--line:#302c3b;--text:#f4f0f8;--muted:#b8afc4;--accent:#c8a8ff}}
 *{{box-sizing:border-box}}body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;font-family:Inter,system-ui,-apple-system,"PingFang SC",sans-serif;background:radial-gradient(circle at 25% 0,#2b1b3d 0,transparent 42%),var(--bg);color:var(--text)}}
-main{{width:min(480px,100%);padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:24px;box-shadow:0 22px 70px #0008}}h1{{font-size:28px;margin:16px 0 10px}}p{{color:var(--muted);line-height:1.7}}code{{color:#e5d5ff}}label{{display:block;margin:22px 0 8px;color:var(--muted);font-size:13px}}input,button{{width:100%;padding:14px;border-radius:13px;font:inherit}}input{{background:#0f0e14;border:1px solid var(--line);color:var(--text)}}button{{margin-top:16px;border:0;background:var(--accent);color:#21152c;font-weight:800}}.pill{{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px}}.error{{color:#ffaca8}}
+main{{width:min(480px,100%);padding:28px;background:var(--panel);border:1px solid var(--line);border-radius:24px;box-shadow:0 22px 70px #0008}}h1{{font-size:28px;margin:16px 0 10px}}p{{color:var(--muted);line-height:1.7}}code{{color:#e5d5ff}}label{{display:block;margin:22px 0 8px;color:var(--muted);font-size:13px}}input,button,.continue{{width:100%;padding:14px;border-radius:13px;font:inherit}}input{{background:#0f0e14;border:1px solid var(--line);color:var(--text)}}button,.continue{{margin-top:16px;border:0;background:var(--accent);color:#21152c;font-weight:800}}.continue{{display:block;text-align:center;text-decoration:none}}.pill{{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:999px}}.error{{color:#ffaca8}}
 </style></head><body><main>{content}</main></body></html>"""

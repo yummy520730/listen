@@ -140,6 +140,8 @@ https://你的域名/mcp
 
 OAuth Client ID 和 OAuth Client Secret 留空。添加后点击 **Connect**，Claude 会自动注册客户端并打开聆音登录页；输入 `LINGYIN_ACCESS_TOKEN` 后允许连接。密码只提交给聆音，不放进 Connector URL，也不会发送给 Claude。
 
+如果点“允许连接”后浏览器没有成功返回 Claude，可以再次提交；服务会在短时间内复用同一个回调。重新打开登录页时也会出现“继续回到 Claude”按钮，不会因第一次跳转丢失而立即判定过期。
+
 如果 Claude 的 Connector 测试版无法完成 OAuth，可临时把 Zeabur 变量改成：
 
 ```env

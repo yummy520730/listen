@@ -5,7 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 import httpx
 
-from lingyin_server.oauth import LingYinOAuthProvider, OAuthLoginError, OAUTH_SCOPES
+from lingyin_server.oauth import LingYinOAuthProvider, OAuthLoginError, OAUTH_SCOPES, render_oauth_login
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.fastmcp import FastMCP
 
@@ -102,6 +102,12 @@ async def test_oauth_dcr_pkce_and_refresh_flow(tmp_path):
         callback = provider.complete_authorization(request_id, "owner-password")
         callback_params = parse_qs(urlparse(callback).query)
         assert callback_params["state"] == ["state-value"]
+
+        # Losing the first browser redirect must not make a second tap expire.
+        assert provider.complete_authorization(request_id, "irrelevant-on-retry") == callback
+        completed = provider.get_pending_login(request_id)
+        assert completed and completed["completed_redirect"] == callback
+        assert "继续回到 Claude" in render_oauth_login(request_id, completed)
 
         token_response = await client.post(
             "/token",
